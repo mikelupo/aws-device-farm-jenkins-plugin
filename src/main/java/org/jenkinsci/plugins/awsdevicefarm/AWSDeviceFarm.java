@@ -50,6 +50,7 @@ import com.amazonaws.services.devicefarm.model.Upload;
 import hudson.EnvVars;
 import hudson.FilePath;
 import org.apache.commons.lang.RandomStringUtils;
+import org.apache.http.HttpHost;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.FileEntity;
@@ -122,6 +123,14 @@ public class AWSDeviceFarm {
         }
 
         ClientConfiguration clientConfiguration = new ClientConfiguration().withUserAgent("AWS Device Farm - Jenkins v1.0");
+        System.out.println("AWS Device farm checking to see if you have a proxy in use....");
+        if (getProxyHostOnEnv() != null && getProxyPortOnEnv() != 0) {
+            System.out.println("AWS Device Farm will use proxy:" + getProxyHostOnEnv() + ":"+getProxyPortOnEnv());
+            clientConfiguration.setProxyHost(getProxyHostOnEnv());
+            clientConfiguration.setProxyPort(getProxyPortOnEnv());
+        } else {
+            System.out.println("AWS Device farm thinks that you don't have a proxy in use....");
+        }
         api = new AWSDeviceFarmClient(creds, clientConfiguration);
         api.setServiceNameIntern("devicefarm");
     }
@@ -514,7 +523,15 @@ public class AWSDeviceFarm {
                 .withType(uploadType.toString());
         Upload upload = api.createUpload(appUploadRequest).getUpload();
 
-        CloseableHttpClient httpClient = HttpClients.createSystem();
+        CloseableHttpClient httpClient;
+        if (getProxyHostOnEnv() != null && getProxyPortOnEnv() != 0) {
+        httpClient = HttpClients.custom()
+                .useSystemProperties()
+                .setProxy(new HttpHost(getProxyHostOnEnv(), getProxyPortOnEnv()))
+                .build();
+        } else {
+            httpClient = HttpClients.createDefault();
+        }
         HttpPut httpPut = new HttpPut(upload.getUrl());
         httpPut.setHeader("Content-Type", upload.getContentType());
 
@@ -711,5 +728,23 @@ public class AWSDeviceFarm {
         if (log != null) {
             log.println(String.format("[AWSDeviceFarm] %s", message));
         }
+    }
+
+    private String getProxyHostOnEnv() {
+        String host = System.getenv("HTTP_PROXY_HOST");
+        if (host != null && host.trim().length() > 0) {
+            return host;
+        }
+        return null;
+    }
+
+    private int getProxyPortOnEnv() {
+        String port = System.getenv("HTTP_PROXY_PORT");
+        try {
+            return Integer.parseInt(port);
+        } catch(NumberFormatException ex) {
+            //do nothing
+        }
+        return 0;
     }
 }
